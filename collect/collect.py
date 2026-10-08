@@ -40,7 +40,7 @@ def get_os_info():
     return {
         "os_id": info.get("ID"),
         "os_name": info.get("NAME"),
-        "os_version": info.get("VERSOPM"),
+        "os_version": info.get("VERSION_ID"),
         "kernel": run_cmd("uname -r")
     }
 
@@ -89,6 +89,14 @@ def get_process():
     
     return processes
         
+def get_osv_ecosystem(os_info):
+    os_id = (os_info.get("id") or "").lower()
+    version_id = os_info.get("version_id")
+    
+    if os_id == "debian" and version_id:
+        return f"Debian:{version_id}"
+    
+    return None
 
 def get_dpkg_package():
     output = run_cmd(
@@ -125,6 +133,7 @@ def get_python_packages():
             
             for pkg in packages:
                 result.append({
+                    "ecosystem" : "PyPI",
                     "name" : pkg["name"],
                     "version" : pkg["version"],
                     "source" : "pip"
@@ -180,24 +189,66 @@ def get_docker_container():
             
     return containers    
 
-def get_container_dpkg_packages(container_id):
+def get_container_os_info(container_id):
+    output = run_cmd(
+        f"docker exec {container_id} cat /etc/os-release"
+    )
+    
+    info = {}
+    
+    for line in output.splitlines():
+        if "=" not in line:
+            continue
+        
+        key, value = line.split("=", 1)
+        info[key] = value.strip('"')
+    
+    return {
+        "id": info.get("ID"),
+        "version_id": info.get("VERSION_ID"),
+        "codename" : info.get("VERSION_CODENAME")
+    }
+
+def get_container_dpkg_packages(container_id, ecosystem):
     cmd = (f"docker exec {container_id} "
-           "dpkg-query -W -f='${Package}|${Version}\\n'")
+           "dpkg-query -W "
+           "-f='${Package}|${Version}|"
+           "${source:Package}|${source:Version}\\n'"
+    )
     
     output = run_cmd(cmd)
     
     packages = []
     
     for line in output.splitlines():
-        if "|" not in line:
+        
+        parts = line.split("|")
+        
+        if len(parts) != 4:
             continue
         
-        name, version = line.split("|",1)
+        binary_name = parts[0].strip()
+        binary_version = parts[1].strip()
         
+        source_name = parts[2].strip()
+        source_version = parts[3].strip()
+        
+        # source 값이 없으면 binary 값을 사용
+        
+        if not source_name:
+            source_name = binary_name
+            
+        if not source_version:
+            source_version = binary_version
+                
         packages.append({
-            "ecosystem" : "Debian",
-            "name" : name,
-            "version" : version,
+            "ecosystem" : ecosystem,
+            "name" : binary_name,
+            "version" : binary_version,
+            
+            "source_name" : source_name,
+            "source_version" : source_version,
+            
             "source" : "docker-dpkg",
             "container_id" : container_id
         })
@@ -276,10 +327,28 @@ def collect_inventory():
         
         container["packages"] = []
         
-        container["packages"].extend(
-            get_container_dpkg_packages(cid)
+        os_info = get_container_os_info(cid)
+        
+        container["os"] = os_info
+        
+        # OSV ecosystem 생성
+        ecosystem = get_osv_ecosystem(os_info)
+        
+        print(
+            f"[DEBUG][OS] {cid} -> "
+            f"{os_info} / ecosystem={ecosystem}"
         )
         
+        # Dibian 패키지
+        if ecosystem:
+            container["packages"].extend(
+                get_container_dpkg_packages(
+                    cid,
+                    ecosystem
+                )
+            )
+        
+        # Python 패키지
         container["packages"].extend(
             get_container_python_packages(cid)
         )

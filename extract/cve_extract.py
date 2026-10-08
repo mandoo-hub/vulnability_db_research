@@ -82,7 +82,6 @@ def query_osv(ecosystem, name, version):
 
     return response.json()
 
-
 def extract_cves(osv_result):
 
     results = []
@@ -265,7 +264,7 @@ for container in inventory.get(
         version = package.get(
             "version"
         )
-
+        
         if not all([
             ecosystem,
             name,
@@ -273,23 +272,43 @@ for container in inventory.get(
         ]):
             continue
 
+        # Debian 패키지는 source package 기준으로 OSV 조회
+        if ecosystem.startswith("Debian:"):
+            
+            query_name = (
+                package.get("source_name")
+                or name
+            )
+            
+            query_version = (
+                package.get("source_version")
+                or version
+            )
+        
+        else:
+            
+            query_name = name
+            query_version = version
+
         total_packages += 1
 
         print(
             f"[DEBUG][INPUT]"
             f"[DOCKER: {container_id}] "
             f"{ecosystem} "
-            f"{name} "
-            f"{version}"
+            f"{name}@{version} "
+            f"-> QUERY: "
+            f"{query_name}@{query_version}"
         )
 
         try:
 
             osv_result = query_osv(
                 ecosystem,
-                name,
-                version
+                query_name,
+                query_version
             )
+            
 
             cves = extract_cves(
                 osv_result
@@ -297,7 +316,9 @@ for container in inventory.get(
 
             print(
                 f"[DEBUG][CVE] "
-                f"{name}@{version} -> {cves}"
+                f"{ecosystem} "
+                f"{query_name}@{query_version} "
+                f"-> {cves} "
             )
 
             if cves:
