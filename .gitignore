@@ -2,3 +2,4 @@
 .env
 result/
 vulnability.db
+inventory_*.json
