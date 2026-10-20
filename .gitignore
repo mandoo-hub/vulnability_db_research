@@ -3,3 +3,4 @@
 result/
 vulnability.db
 inventory_*.json
+__pycache__/
